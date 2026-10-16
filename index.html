@@ -44,7 +44,6 @@
         let adminEmailConfig = 'karadenizmehmet@gmail.com'; 
         let authInitializing = true;
         
-        // Dinleyici Temizleme (Memory Leak & Güvenlik Önlemi)
         let unsubMyProfile = null;
         let unsubAllProfiles = null;
         let unsubCommands = null;
@@ -74,7 +73,6 @@
             const profileRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid);
             
             try {
-                // İlk giriş kontrolü ve profil oluşturma
                 const snap = await getDoc(profileRef);
                 const isAdmin = user.email.toLowerCase() === adminEmailConfig.toLowerCase();
 
@@ -95,14 +93,12 @@
                     }
                 }
 
-                // Kullanıcının kendi profilini canlı dinle (Yetki iptali anında yansır)
                 if (unsubMyProfile) unsubMyProfile();
                 unsubMyProfile = onSnapshot(profileRef, (docSnap) => {
                     if (docSnap.exists()) {
                         const oldStatus = currentProfile ? currentProfile.status : null;
                         currentProfile = { id: docSnap.id, ...docSnap.data() };
                         
-                        // Yetki durumuna göre dinleyicileri yeniden ayarla
                         setupDataListeners();
                         authInitializing = false;
                         render();
@@ -127,7 +123,6 @@
         function setupDataListeners() {
             if (!currentProfile) return;
             
-            // Eğer adminse tüm profilleri dinle
             if (currentProfile.role === 'admin') {
                 if (!unsubAllProfiles) {
                     const profilesRef = collection(db, 'artifacts', appId, 'public', 'data', 'profiles');
@@ -143,18 +138,14 @@
                 if (unsubAllProfiles) { unsubAllProfiles(); unsubAllProfiles = null; }
             }
 
-            // Komutları Dinleme (Kendi okuluna göre filtreleme)
             if (currentProfile.status === 'approved') {
                 if (unsubCommands) unsubCommands();
                 
                 const commandsRef = collection(db, 'artifacts', appId, 'public', 'data', 'commands');
-                // HATA YÖNETİMİ: Firestore index hatası vermemesi için sorguyu basit tutuyoruz, 
-                // Güvenlik kuralları (server-side) zaten diğer okulların verisini okumasını engelleyecektir.
-                let q = query(commandsRef, orderBy('timestamp', 'desc'), limit(20));
+                let q = query(commandsRef, orderBy('timestamp', 'desc'), limit(30));
                 
                 unsubCommands = onSnapshot(q, (snapshot) => {
                     let fetchedCommands = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    // Client-side filtreleme (Sunucu kuralı ile desteklendiği için güvenlidir)
                     if (currentProfile.role !== 'admin') {
                         fetchedCommands = fetchedCommands.filter(cmd => cmd.school === currentProfile.school);
                     }
@@ -162,7 +153,6 @@
                     render();
                 }, (error) => {
                     console.error("Komut logları okuma hatası:", error);
-                    // Index yoksa veya kural engellerse
                 });
             } else {
                 if (unsubCommands) { unsubCommands(); unsubCommands = null; }
@@ -227,21 +217,33 @@
         };
 
         window.sendPlayCommand = async () => {
-            if (!currentProfile || !currentProfile.school || currentProfile.status !== 'approved') {
-                return showMessage("Yetkiniz bulunmuyor.", "error");
+            let targetSchool = currentProfile.school;
+            
+            // Eğer yöneticiyse, açılır menüden seçilen okulu al
+            if (currentProfile.role === 'admin') {
+                const selectEl = document.getElementById('admin-school-select');
+                if (!selectEl || !selectEl.value) {
+                    return showMessage("Lütfen anons yapmak istediğiniz okulu seçin!", "error");
+                }
+                targetSchool = selectEl.value;
             }
+
+            if (!targetSchool || currentProfile.status !== 'approved') {
+                return showMessage("Yetkiniz bulunmuyor veya okul seçilmedi.", "error");
+            }
+
             try {
                 const cmdRef = collection(db, 'artifacts', appId, 'public', 'data', 'commands');
                 await addDoc(cmdRef, {
                     command: 'PLAY_ANTHEM',
-                    school: currentProfile.school,
+                    school: targetSchool,
                     triggeredBy: currentProfile.email,
                     timestamp: Date.now()
                 });
-                showMessage("Komut Başarıyla Gönderildi: " + currentProfile.school);
+                showMessage("Komut Başarıyla Gönderildi: " + targetSchool);
             } catch (err) {
                 console.error(err);
-                showMessage("Komut gönderilemedi! Güvenlik kurallarını veya bağlantınızı kontrol edin.", "error");
+                showMessage("Yetki hatası! Güvenlik kurallarını kontrol edin.", "error");
             }
         };
 
@@ -299,7 +301,7 @@
                     </div>
                     <div class="flex items-center gap-4">
                         <div class="flex flex-col items-end">
-                            <span class="text-sm font-bold text-slate-800">${currentProfile.displayName}</span>
+                            <span class="text-sm font-bold text-slate-800">Hoş geldin, ${currentProfile.displayName}</span>
                             <span class="text-xs text-slate-500">${currentProfile.role === 'admin' ? 'Yönetici' : (currentProfile.school || 'Beklemede')}</span>
                         </div>
                         <button onclick="handleLogout()" class="p-2 text-slate-500 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors" title="Çıkış Yap"><i class="fas fa-sign-out-alt text-lg"></i></button>
@@ -370,14 +372,26 @@
                 `).join('');
 
                 let controlPanelHtml = '';
-                if (currentProfile.role === 'admin' && !currentProfile.school) {
+                if (currentProfile.role === 'admin') {
+                    // Yöneticiler için okul seçmeli panel
                     controlPanelHtml = `
-                        <div class="text-center p-6 bg-slate-50 rounded-lg w-full border border-slate-200">
-                            <i class="fas fa-shield-alt text-4xl text-slate-400 mb-3"></i>
-                            <p class="text-slate-600 font-medium">Yönetici hesabı komut göndermez, yetkilendirme yapar.<br><br>Komutları test etmek için farklı bir hesapla giriş yapınız.</p>
+                        <h2 class="text-2xl font-bold text-slate-800 mb-2">Yönetici Anons Paneli</h2>
+                        <p class="text-slate-500 text-sm mb-6 text-center">İstiklal Marşı'nı çalmak istediğiniz okulu seçin.</p>
+                        
+                        <div class="w-full max-w-sm mx-auto mb-8">
+                            <select id="admin-school-select" class="w-full border-2 border-slate-300 rounded-lg p-3 text-sm outline-none focus:border-blue-500 bg-slate-50 font-medium text-slate-700">
+                                <option value="" disabled selected>Okul Seçiniz...</option>
+                                ${SCHOOLS.map(s => `<option value="${s}">${s}</option>`).join('')}
+                            </select>
                         </div>
+
+                        <button onclick="sendPlayCommand()" class="relative group bg-red-600 hover:bg-red-700 text-white rounded-full w-48 h-48 sm:w-56 sm:h-56 flex flex-col items-center justify-center shadow-[0_10px_20px_rgba(220,38,38,0.3)] transition-transform active:scale-95 mx-auto">
+                            <i class="fas fa-play text-5xl sm:text-6xl mb-4 ml-2"></i>
+                            <span class="font-bold text-lg sm:text-xl leading-tight uppercase text-center tracking-wide">İstiklal<br>Marşı</span>
+                        </button>
                     `;
                 } else {
+                    // Normal kullanıcılar için standart panel
                     controlPanelHtml = `
                         <h2 class="text-2xl font-bold text-slate-800 mb-2">Anons Paneli</h2>
                         <p class="text-slate-500 text-lg mb-8 text-center">Yetkili Okul:<br><strong class="text-blue-600 text-sm">${currentProfile.school}</strong></p>
@@ -395,7 +409,7 @@
                         <div class="bg-slate-900 rounded-xl shadow-sm border border-slate-800 flex flex-col h-[400px]">
                             <div class="bg-slate-950 px-6 py-4 flex items-center gap-2 border-b border-slate-800">
                                 <i class="fas fa-satellite-dish text-green-400 animate-pulse"></i>
-                                <h3 class="font-bold text-white text-lg">Loglar ${currentProfile.role !== 'admin' ? '(Sadece Okulunuz)' : ''}</h3>
+                                <h3 class="font-bold text-white text-lg">Loglar ${currentProfile.role !== 'admin' ? '(Sadece Okulunuz)' : '(Tüm Okullar)'}</h3>
                             </div>
                             <div class="p-4 flex-1 overflow-y-auto font-mono">${logRows || '<div class="text-slate-500 text-center py-8">Gösterilecek kayıt bulunamadı.</div>'}</div>
                         </div>

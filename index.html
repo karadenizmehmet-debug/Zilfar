@@ -4,18 +4,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Okul Zil & Anons Sistemi</title>
+    <title>İstiklal Marşı Sistemi</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
-<body class="bg-slate-100 text-slate-800 font-sans">
+<body class="bg-slate-100 text-slate-800 font-sans relative min-h-screen pb-10">
     
     <div id="app"></div>
+
+    <!-- Mehmet Karadeniz İmzası -->
+    <div class="fixed bottom-2 right-3 text-[11px] text-slate-500 font-medium bg-white/80 px-3 py-1.5 rounded-full backdrop-blur-sm border border-slate-200 shadow-sm z-50">
+        <i class="fas fa-code text-blue-500 mr-1"></i> Mehmet Karadeniz tarafından yapılmıştır
+    </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, addDoc, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, addDoc, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAaWmtycFbkjfYj242K5dqvCmfB6XM0ZdY",
@@ -41,8 +46,7 @@
         let currentProfile = null;
         let allProfiles = [];
         let commands = [];
-        let adminEmailConfig = 'karadenizmehmet@gmail.com'; 
-        let authInitializing = true;
+        let authInitializing = true; 
         
         let unsubMyProfile = null;
         let unsubAllProfiles = null;
@@ -74,7 +78,7 @@
             
             try {
                 const snap = await getDoc(profileRef);
-                const isAdmin = user.email.toLowerCase() === adminEmailConfig.toLowerCase();
+                const isAdmin = user.email.toLowerCase() === 'karadenizmehmet@gmail.com';
 
                 if (!snap.exists()) {
                     const newProfile = {
@@ -86,11 +90,6 @@
                         createdAt: Date.now()
                     };
                     await setDoc(profileRef, newProfile);
-                } else {
-                    let data = snap.data();
-                    if (isAdmin && data.role !== 'admin') {
-                        await updateDoc(profileRef, { role: 'admin', status: 'approved' });
-                    }
                 }
 
                 if (unsubMyProfile) unsubMyProfile();
@@ -104,17 +103,17 @@
                         render();
                         
                         if (oldStatus === 'approved' && currentProfile.status === 'pending') {
-                            showMessage("Yetkiniz yönetici tarafından iptal edildi.", "warning");
+                            showMessage("Yetkiniz iptal edildi.", "warning");
                         }
                     }
                 }, (error) => {
                     console.error("Profil dinleme hatası:", error);
-                    showMessage("Profil bilgileri alınamadı.", "error");
+                    authInitializing = false;
+                    render();
                 });
 
             } catch (error) {
-                console.error("Profil oluşturma hatası:", error);
-                showMessage("Sisteme bağlanırken hata oluştu.", "error");
+                console.error("Sisteme bağlanırken hata:", error);
                 authInitializing = false;
                 render();
             }
@@ -130,8 +129,6 @@
                         allProfiles = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                         allProfiles.sort((a, b) => b.createdAt - a.createdAt);
                         render();
-                    }, (error) => {
-                        console.error("Kullanıcı listesi hatası:", error);
                     });
                 }
             } else {
@@ -151,8 +148,6 @@
                     }
                     commands = fetchedCommands;
                     render();
-                }, (error) => {
-                    console.error("Komut logları okuma hatası:", error);
                 });
             } else {
                 if (unsubCommands) { unsubCommands(); unsubCommands = null; }
@@ -160,18 +155,16 @@
             }
         }
 
-        window.handleGoogleLogin = () => {
-            authInitializing = true;
-            render();
+        window.handleGoogleLogin = async () => {
             const provider = new GoogleAuthProvider();
             provider.setCustomParameters({ prompt: 'select_account' });
             
-            signInWithPopup(auth, provider).catch((error) => {
-                authInitializing = false;
-                render();
+            try {
+                await signInWithPopup(auth, provider);
+            } catch (error) {
                 console.error("Giriş Hatası:", error);
-                showMessage("Giriş başarısız. Tarayıcı engeline takılmış olabilir.", "error");
-            });
+                showMessage("Giriş başarısız.", "error");
+            }
         };
 
         window.handleLogout = async () => { 
@@ -189,7 +182,7 @@
                 await updateDoc(userRef, { status: 'approved', school: selectEl.value });
                 showMessage("Kullanıcıya yetki verildi!");
             } catch (err) {
-                showMessage("Yetki verilemedi. Bağlantınızı kontrol edin.", "error");
+                showMessage("Hata: Yetki verilemedi.", "error");
             }
         };
 
@@ -219,7 +212,6 @@
         window.sendPlayCommand = async () => {
             let targetSchool = currentProfile.school;
             
-            // Eğer yöneticiyse, açılır menüden seçilen okulu al
             if (currentProfile.role === 'admin') {
                 const selectEl = document.getElementById('admin-school-select');
                 if (!selectEl || !selectEl.value) {
@@ -237,13 +229,13 @@
                 await addDoc(cmdRef, {
                     command: 'PLAY_ANTHEM',
                     school: targetSchool,
-                    triggeredBy: currentProfile.email,
+                    triggeredBy: currentProfile.displayName || currentProfile.email.split('@')[0], // Artık İsim-Soyisim gidiyor!
                     timestamp: Date.now()
                 });
-                showMessage("Komut Başarıyla Gönderildi: " + targetSchool);
+                showMessage("Marş Komutu Gönderildi: " + targetSchool);
             } catch (err) {
                 console.error(err);
-                showMessage("Yetki hatası! Güvenlik kurallarını kontrol edin.", "error");
+                showMessage("Yetki hatası! Veritabanı kurallarınızı kontrol edin.", "error");
             }
         };
 
@@ -267,7 +259,7 @@
             if (authInitializing) {
                 appDiv.innerHTML = `
                     <div class="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-100">
-                        <i class="fas fa-circle-notch fa-spin text-5xl text-blue-600 mb-4"></i>
+                        <i class="fas fa-circle-notch fa-spin text-5xl text-red-600 mb-4"></i>
                         <p class="text-slate-500 font-medium">Sistem Yükleniyor...</p>
                     </div>
                 `;
@@ -277,12 +269,15 @@
             if (!currentUser) {
                 appDiv.innerHTML = `
                     <div class="min-h-screen flex items-center justify-center p-4 bg-slate-100">
-                        <div class="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full space-y-6 text-center">
-                            <div class="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i class="fas fa-broadcast-tower text-2xl text-blue-600"></i>
+                        <div class="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full space-y-6 text-center border-t-4 border-red-600">
+                            
+                            <div class="w-24 h-24 mx-auto mb-2 rounded-full overflow-hidden border-4 border-slate-100 shadow-md">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/b/b4/Flag_of_Turkey.svg" class="w-full h-full object-cover" alt="Türk Bayrağı">
                             </div>
-                            <h1 class="text-2xl font-bold text-gray-800">Okul Zil & Anons Sistemi</h1>
+
+                            <h1 class="text-3xl font-bold text-gray-800 tracking-tight">İstiklal Marşı<br>Sistemi</h1>
                             <p class="text-gray-500 text-sm mt-2 mb-6">Sisteme erişmek için giriş yapın</p>
+                            
                             <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center gap-3 bg-white border-2 border-slate-200 text-slate-700 font-bold py-3 px-4 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
                                 <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-5 h-5" alt="Google">
                                 Google İle Giriş Yap
@@ -294,17 +289,19 @@
             }
 
             let headerHtml = `
-                <header class="bg-white shadow-sm border-b border-slate-200 px-4 py-4 flex items-center justify-between sticky top-0 z-10">
+                <header class="bg-white shadow-sm border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
                     <div class="flex items-center gap-3">
-                        <i class="fas fa-broadcast-tower text-xl text-blue-600"></i>
-                        <h1 class="font-bold text-lg hidden sm:block">Merkezi Anons Sistemi</h1>
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/b/b4/Flag_of_Turkey.svg" class="w-10 h-7 object-cover rounded shadow-sm border border-slate-200" alt="Türk Bayrağı">
+                        <h1 class="font-bold text-lg hidden sm:block text-slate-800">İstiklal Marşı Sistemi</h1>
                     </div>
                     <div class="flex items-center gap-4">
                         <div class="flex flex-col items-end">
                             <span class="text-sm font-bold text-slate-800">Hoş geldin, ${currentProfile.displayName}</span>
                             <span class="text-xs text-slate-500">${currentProfile.role === 'admin' ? 'Yönetici' : (currentProfile.school || 'Beklemede')}</span>
                         </div>
-                        <button onclick="handleLogout()" class="p-2 text-slate-500 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors" title="Çıkış Yap"><i class="fas fa-sign-out-alt text-lg"></i></button>
+                        <button onclick="handleLogout()" class="p-2 text-slate-500 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors" title="Çıkış Yap">
+                            <i class="fas fa-sign-out-alt text-lg"></i>
+                        </button>
                     </div>
                 </header>
             `;
@@ -321,8 +318,8 @@
                                 : '<span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold whitespace-nowrap"><i class="fas fa-clock"></i> Bekliyor</span>'}
                         </td>
                         <td class="py-2 lg:py-4">
-                            <select id="school-select-${p.id}" class="border border-slate-300 rounded p-2 text-xs lg:text-sm outline-none bg-white w-full lg:max-w-[250px] focus:border-blue-500">
-                                <option value="" disabled ${!p.school ? 'selected' : ''}>Okul Seçin</option>
+                            <select id="school-select-${p.id}" class="border border-slate-300 rounded p-2 text-xs lg:text-sm outline-none bg-white w-full lg:max-w-[250px] focus:border-red-500">
+                                <option value="" disabled ${!p.school ? 'selected' : ''}>Okul Seç</option>
                                 ${SCHOOLS.map(s => `<option value="${s}" ${p.school === s ? 'selected' : ''}>${s}</option>`).join('')}
                             </select>
                         </td>
@@ -330,7 +327,7 @@
                             <div class="flex items-center gap-2 lg:justify-end mt-2 lg:mt-0">
                                 ${p.status === 'pending'
                                     ? `<button onclick="approveUser('${p.id}')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-xs font-bold shadow-sm w-full lg:w-auto transition-colors">Yetki Ver</button>`
-                                    : `<button onclick="changeSchool('${p.id}')" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold shadow-sm w-full lg:w-auto transition-colors">Okulu Değiştir</button>
+                                    : `<button onclick="changeSchool('${p.id}')" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold shadow-sm w-full lg:w-auto transition-colors">Değiştir</button>
                                        <button onclick="revokeUser('${p.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2 rounded text-xs font-bold w-full lg:w-auto transition-colors">İptal Et</button>`}
                             </div>
                         </td>
@@ -357,7 +354,7 @@
                     <div class="bg-amber-50 border border-amber-200 rounded-xl p-8 text-center mt-6 max-w-2xl mx-auto">
                         <i class="fas fa-clock text-6xl text-amber-500 mb-4 animate-pulse"></i>
                         <h2 class="text-2xl font-bold text-amber-800">Onay Bekleniyor</h2>
-                        <p class="text-amber-700 mt-2 text-lg">Yöneticiniz sizi onaylayıp bir okula atadığında bu ekranda anons butonu otomatik olarak belirecektir.</p>
+                        <p class="text-amber-700 mt-2 text-lg">Yöneticiniz sizi onaylayıp bir okula atadığında bu ekranda İstiklal Marşı butonu otomatik olarak belirecektir.</p>
                     </div>
                 `;
             }
@@ -367,19 +364,18 @@
                     <div class="bg-slate-800 p-3 rounded border border-slate-700 text-xs text-slate-300 mb-2">
                         <div class="flex justify-between items-start mb-1 gap-2"><span class="text-green-400 font-bold whitespace-nowrap">[${new Date(cmd.timestamp).toLocaleTimeString()}]</span><span class="bg-blue-900 text-blue-300 px-2 py-0.5 rounded text-[10px] text-right leading-tight break-words max-w-[50%]">${cmd.school}</span></div>
                         <div class="text-yellow-400 font-bold text-sm">${cmd.command}</div>
-                        <div class="text-slate-500 mt-1 truncate">Kim: ${cmd.triggeredBy}</div>
+                        <div class="text-slate-400 mt-1 truncate">Çalan: <span class="text-white font-medium">${cmd.triggeredBy}</span></div>
                     </div>
                 `).join('');
 
                 let controlPanelHtml = '';
                 if (currentProfile.role === 'admin') {
-                    // Yöneticiler için okul seçmeli panel
                     controlPanelHtml = `
                         <h2 class="text-2xl font-bold text-slate-800 mb-2">Yönetici Anons Paneli</h2>
                         <p class="text-slate-500 text-sm mb-6 text-center">İstiklal Marşı'nı çalmak istediğiniz okulu seçin.</p>
                         
                         <div class="w-full max-w-sm mx-auto mb-8">
-                            <select id="admin-school-select" class="w-full border-2 border-slate-300 rounded-lg p-3 text-sm outline-none focus:border-blue-500 bg-slate-50 font-medium text-slate-700">
+                            <select id="admin-school-select" class="w-full border-2 border-slate-300 rounded-lg p-3 text-sm outline-none focus:border-red-500 bg-slate-50 font-medium text-slate-700">
                                 <option value="" disabled selected>Okul Seçiniz...</option>
                                 ${SCHOOLS.map(s => `<option value="${s}">${s}</option>`).join('')}
                             </select>
@@ -391,10 +387,9 @@
                         </button>
                     `;
                 } else {
-                    // Normal kullanıcılar için standart panel
                     controlPanelHtml = `
                         <h2 class="text-2xl font-bold text-slate-800 mb-2">Anons Paneli</h2>
-                        <p class="text-slate-500 text-lg mb-8 text-center">Yetkili Okul:<br><strong class="text-blue-600 text-sm">${currentProfile.school}</strong></p>
+                        <p class="text-slate-500 text-lg mb-8 text-center">Yetkili Okul:<br><strong class="text-red-600 text-sm">${currentProfile.school}</strong></p>
                         <button onclick="sendPlayCommand()" class="relative group bg-red-600 hover:bg-red-700 text-white rounded-full w-48 h-48 sm:w-56 sm:h-56 flex flex-col items-center justify-center shadow-[0_10px_20px_rgba(220,38,38,0.3)] transition-transform active:scale-95 mx-auto">
                             <i class="fas fa-play text-5xl sm:text-6xl mb-4 ml-2"></i>
                             <span class="font-bold text-lg sm:text-xl leading-tight uppercase text-center tracking-wide">İstiklal<br>Marşı</span>
@@ -404,12 +399,17 @@
 
                 mainHtml += `
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
-                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 flex flex-col items-center justify-center min-h-[400px] text-center">${controlPanelHtml}</div>
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 flex flex-col items-center justify-center min-h-[400px] text-center relative overflow-hidden">
+                            <div class="absolute -bottom-10 -right-10 opacity-5">
+                                <i class="fas fa-star-and-crescent text-[200px]"></i>
+                            </div>
+                            ${controlPanelHtml}
+                        </div>
                         
                         <div class="bg-slate-900 rounded-xl shadow-sm border border-slate-800 flex flex-col h-[400px]">
                             <div class="bg-slate-950 px-6 py-4 flex items-center gap-2 border-b border-slate-800">
                                 <i class="fas fa-satellite-dish text-green-400 animate-pulse"></i>
-                                <h3 class="font-bold text-white text-lg">Loglar ${currentProfile.role !== 'admin' ? '(Sadece Okulunuz)' : '(Tüm Okullar)'}</h3>
+                                <h3 class="font-bold text-white text-lg">Canlı Loglar ${currentProfile.role !== 'admin' ? '(Sadece Okulunuz)' : ''}</h3>
                             </div>
                             <div class="p-4 flex-1 overflow-y-auto font-mono">${logRows || '<div class="text-slate-500 text-center py-8">Gösterilecek kayıt bulunamadı.</div>'}</div>
                         </div>

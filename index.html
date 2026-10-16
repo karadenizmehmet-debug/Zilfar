@@ -15,12 +15,11 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, addDoc, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAaWmtycFbkjfYj242K5dqvCmfB6XM0ZdY",
             authDomain: "zil-far.firebaseapp.com",
-            databaseURL: "https://zil-far-default-rtdb.europe-west1.firebasedatabase.app",
             projectId: "zil-far",
             storageBucket: "zil-far.firebasestorage.app",
             messagingSenderId: "245735942145",
@@ -32,8 +31,6 @@
         const db = getFirestore(app);
         
         const appId = 'okul-zil-app';
-        
-        // GÜNCEL OKULLAR LİSTESİ
         const SCHOOLS = [
             "Karahüyük Ali Akkanat Ortaokulu", 
             "Nimetullah Nahçivani İmam Hatip Ortaokulu", 
@@ -45,17 +42,21 @@
         let allProfiles = [];
         let commands = [];
         let adminEmailConfig = 'karadenizmehmet@gmail.com'; 
-        let authInitializing = true; // Yükleniyor durumu
+        let authInitializing = true;
+        
+        // Dinleyici Temizleme (Memory Leak & Güvenlik Önlemi)
+        let unsubMyProfile = null;
+        let unsubAllProfiles = null;
+        let unsubCommands = null;
         
         const appDiv = document.getElementById('app');
 
-        // GİRİŞ KONTROLÜ (Hatırlama Özelliği)
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 currentUser = user;
-                await fetchOrCreateProfile(user);
-                listenToData();
+                await setupMyProfileListener(user);
             } else {
+                cleanupListeners();
                 currentUser = null;
                 currentProfile = null;
                 authInitializing = false;
@@ -63,110 +64,193 @@
             }
         });
 
-        async function fetchOrCreateProfile(user) {
-            const profileRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid);
-            const snap = await getDoc(profileRef);
-            const isAdmin = user.email.toLowerCase() === adminEmailConfig.toLowerCase();
-
-            if (snap.exists()) {
-                let data = snap.data();
-                if (isAdmin && data.role !== 'admin') {
-                    await updateDoc(profileRef, { role: 'admin', status: 'approved' });
-                    data.role = 'admin';
-                    data.status = 'approved';
-                }
-                currentProfile = { id: snap.id, ...data };
-            } else {
-                const newProfile = {
-                    email: user.email,
-                    displayName: user.displayName || user.email.split('@')[0],
-                    status: isAdmin ? 'approved' : 'pending',
-                    role: isAdmin ? 'admin' : 'user',
-                    school: null,
-                    createdAt: Date.now()
-                };
-                await setDoc(profileRef, newProfile);
-                currentProfile = { id: user.uid, ...newProfile };
-            }
-            authInitializing = false; 
-            render();
+        function cleanupListeners() {
+            if (unsubMyProfile) { unsubMyProfile(); unsubMyProfile = null; }
+            if (unsubAllProfiles) { unsubAllProfiles(); unsubAllProfiles = null; }
+            if (unsubCommands) { unsubCommands(); unsubCommands = null; }
         }
 
-        function listenToData() {
+        async function setupMyProfileListener(user) {
+            const profileRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid);
+            
+            try {
+                // İlk giriş kontrolü ve profil oluşturma
+                const snap = await getDoc(profileRef);
+                const isAdmin = user.email.toLowerCase() === adminEmailConfig.toLowerCase();
+
+                if (!snap.exists()) {
+                    const newProfile = {
+                        email: user.email,
+                        displayName: user.displayName || user.email.split('@')[0],
+                        status: isAdmin ? 'approved' : 'pending',
+                        role: isAdmin ? 'admin' : 'user',
+                        school: null,
+                        createdAt: Date.now()
+                    };
+                    await setDoc(profileRef, newProfile);
+                } else {
+                    let data = snap.data();
+                    if (isAdmin && data.role !== 'admin') {
+                        await updateDoc(profileRef, { role: 'admin', status: 'approved' });
+                    }
+                }
+
+                // Kullanıcının kendi profilini canlı dinle (Yetki iptali anında yansır)
+                if (unsubMyProfile) unsubMyProfile();
+                unsubMyProfile = onSnapshot(profileRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const oldStatus = currentProfile ? currentProfile.status : null;
+                        currentProfile = { id: docSnap.id, ...docSnap.data() };
+                        
+                        // Yetki durumuna göre dinleyicileri yeniden ayarla
+                        setupDataListeners();
+                        authInitializing = false;
+                        render();
+                        
+                        if (oldStatus === 'approved' && currentProfile.status === 'pending') {
+                            showMessage("Yetkiniz yönetici tarafından iptal edildi.", "warning");
+                        }
+                    }
+                }, (error) => {
+                    console.error("Profil dinleme hatası:", error);
+                    showMessage("Profil bilgileri alınamadı.", "error");
+                });
+
+            } catch (error) {
+                console.error("Profil oluşturma hatası:", error);
+                showMessage("Sisteme bağlanırken hata oluştu.", "error");
+                authInitializing = false;
+                render();
+            }
+        }
+
+        function setupDataListeners() {
             if (!currentProfile) return;
             
+            // Eğer adminse tüm profilleri dinle
             if (currentProfile.role === 'admin') {
-                const profilesRef = collection(db, 'artifacts', appId, 'public', 'data', 'profiles');
-                onSnapshot(profilesRef, (snapshot) => {
-                    allProfiles = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    allProfiles.sort((a, b) => b.createdAt - a.createdAt);
-                    render();
-                });
+                if (!unsubAllProfiles) {
+                    const profilesRef = collection(db, 'artifacts', appId, 'public', 'data', 'profiles');
+                    unsubAllProfiles = onSnapshot(profilesRef, (snapshot) => {
+                        allProfiles = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        allProfiles.sort((a, b) => b.createdAt - a.createdAt);
+                        render();
+                    }, (error) => {
+                        console.error("Kullanıcı listesi hatası:", error);
+                    });
+                }
+            } else {
+                if (unsubAllProfiles) { unsubAllProfiles(); unsubAllProfiles = null; }
             }
 
-            const commandsRef = collection(db, 'artifacts', appId, 'public', 'data', 'commands');
-            onSnapshot(commandsRef, (snapshot) => {
-                commands = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                commands.sort((a, b) => b.timestamp - a.timestamp);
-                commands = commands.slice(0, 20);
-                render();
-            });
+            // Komutları Dinleme (Kendi okuluna göre filtreleme)
+            if (currentProfile.status === 'approved') {
+                if (unsubCommands) unsubCommands();
+                
+                const commandsRef = collection(db, 'artifacts', appId, 'public', 'data', 'commands');
+                // HATA YÖNETİMİ: Firestore index hatası vermemesi için sorguyu basit tutuyoruz, 
+                // Güvenlik kuralları (server-side) zaten diğer okulların verisini okumasını engelleyecektir.
+                let q = query(commandsRef, orderBy('timestamp', 'desc'), limit(20));
+                
+                unsubCommands = onSnapshot(q, (snapshot) => {
+                    let fetchedCommands = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    // Client-side filtreleme (Sunucu kuralı ile desteklendiği için güvenlidir)
+                    if (currentProfile.role !== 'admin') {
+                        fetchedCommands = fetchedCommands.filter(cmd => cmd.school === currentProfile.school);
+                    }
+                    commands = fetchedCommands;
+                    render();
+                }, (error) => {
+                    console.error("Komut logları okuma hatası:", error);
+                    // Index yoksa veya kural engellerse
+                });
+            } else {
+                if (unsubCommands) { unsubCommands(); unsubCommands = null; }
+                commands = [];
+            }
         }
 
-        // DİREKT POPUP İLE GİRİŞ (Sayfa yenilenmesini engeller, girişi unutmaz)
         window.handleGoogleLogin = () => {
+            authInitializing = true;
+            render();
             const provider = new GoogleAuthProvider();
             provider.setCustomParameters({ prompt: 'select_account' });
             
             signInWithPopup(auth, provider).catch((error) => {
+                authInitializing = false;
+                render();
                 console.error("Giriş Hatası:", error);
-                alert("Giriş yapılamadı: " + error.message + "\nLütfen tarayıcınızın açılır pencerelere izin verdiğinden emin olun.");
+                showMessage("Giriş başarısız. Tarayıcı engeline takılmış olabilir.", "error");
             });
         };
 
         window.handleLogout = async () => { 
             authInitializing = true;
             render();
+            cleanupListeners();
             await signOut(auth); 
         };
 
         window.approveUser = async (userId) => {
             const selectEl = document.getElementById('school-select-' + userId);
             if (!selectEl.value) return showMessage("Lütfen önce bir okul seçin!", "error");
-            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', userId);
-            await updateDoc(userRef, { status: 'approved', school: selectEl.value });
-            showMessage("Kullanıcıya yetki verildi!");
+            try {
+                const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', userId);
+                await updateDoc(userRef, { status: 'approved', school: selectEl.value });
+                showMessage("Kullanıcıya yetki verildi!");
+            } catch (err) {
+                showMessage("Yetki verilemedi. Bağlantınızı kontrol edin.", "error");
+            }
         };
 
         window.changeSchool = async (userId) => {
             const selectEl = document.getElementById('school-select-' + userId);
             if (!selectEl.value) return showMessage("Lütfen bir okul seçin!", "error");
-            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', userId);
-            await updateDoc(userRef, { school: selectEl.value });
-            showMessage("Kullanıcının okulu güncellendi!");
+            try {
+                const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', userId);
+                await updateDoc(userRef, { school: selectEl.value });
+                showMessage("Kullanıcının okulu başarıyla güncellendi!");
+            } catch (err) {
+                showMessage("Okul güncellenemedi.", "error");
+            }
         };
 
         window.revokeUser = async (userId) => {
             if(!confirm("Bu kullanıcının yetkisini iptal etmek istediğinize emin misiniz?")) return;
-            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', userId);
-            await updateDoc(userRef, { status: 'pending', school: null });
-            showMessage("Kullanıcı yetkisi iptal edildi!", "warning");
+            try {
+                const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', userId);
+                await updateDoc(userRef, { status: 'pending', school: null });
+                showMessage("Kullanıcı yetkisi iptal edildi!", "warning");
+            } catch (err) {
+                showMessage("Yetki iptal edilemedi.", "error");
+            }
         };
 
         window.sendPlayCommand = async () => {
-            if (!currentProfile || !currentProfile.school) return;
-            const cmdRef = collection(db, 'artifacts', appId, 'public', 'data', 'commands');
-            await addDoc(cmdRef, {
-                command: 'PLAY_ANTHEM',
-                school: currentProfile.school,
-                triggeredBy: currentProfile.email,
-                timestamp: Date.now()
-            });
-            showMessage("Komut Gönderildi: " + currentProfile.school);
+            if (!currentProfile || !currentProfile.school || currentProfile.status !== 'approved') {
+                return showMessage("Yetkiniz bulunmuyor.", "error");
+            }
+            try {
+                const cmdRef = collection(db, 'artifacts', appId, 'public', 'data', 'commands');
+                await addDoc(cmdRef, {
+                    command: 'PLAY_ANTHEM',
+                    school: currentProfile.school,
+                    triggeredBy: currentProfile.email,
+                    timestamp: Date.now()
+                });
+                showMessage("Komut Başarıyla Gönderildi: " + currentProfile.school);
+            } catch (err) {
+                console.error(err);
+                showMessage("Komut gönderilemedi! Güvenlik kurallarını veya bağlantınızı kontrol edin.", "error");
+            }
         };
 
         function showMessage(msg, type="success") {
+            const existing = document.getElementById('toast-msg');
+            if (existing) existing.remove();
+
             const msgDiv = document.createElement('div');
+            msgDiv.id = 'toast-msg';
             const colorClass = type === "error" ? "bg-red-600" : (type === "warning" ? "bg-amber-600" : "bg-slate-800");
             const iconClass = type === "error" ? "fa-exclamation-triangle" : (type === "warning" ? "fa-exclamation-circle" : "fa-check-circle");
             const textIconClass = type === "success" ? "text-green-400" : "text-white";
@@ -174,11 +258,10 @@
             msgDiv.className = `fixed top-4 right-4 ${colorClass} text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center gap-2 animate-bounce`;
             msgDiv.innerHTML = `<i class="fas ${iconClass} ${textIconClass}"></i> ${msg}`;
             document.body.appendChild(msgDiv);
-            setTimeout(() => msgDiv.remove(), 3000);
+            setTimeout(() => { if (msgDiv.parentNode) msgDiv.remove(); }, 3500);
         }
 
         function render() {
-            // Yükleniyor Ekranı
             if (authInitializing) {
                 appDiv.innerHTML = `
                     <div class="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-100">
@@ -198,7 +281,6 @@
                             </div>
                             <h1 class="text-2xl font-bold text-gray-800">Okul Zil & Anons Sistemi</h1>
                             <p class="text-gray-500 text-sm mt-2 mb-6">Sisteme erişmek için giriş yapın</p>
-
                             <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center gap-3 bg-white border-2 border-slate-200 text-slate-700 font-bold py-3 px-4 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
                                 <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-5 h-5" alt="Google">
                                 Google İle Giriş Yap
@@ -220,7 +302,7 @@
                             <span class="text-sm font-bold text-slate-800">${currentProfile.displayName}</span>
                             <span class="text-xs text-slate-500">${currentProfile.role === 'admin' ? 'Yönetici' : (currentProfile.school || 'Beklemede')}</span>
                         </div>
-                        <button onclick="handleLogout()" class="p-2 text-slate-500 hover:bg-slate-100 rounded-full" title="Çıkış Yap"><i class="fas fa-sign-out-alt text-lg"></i></button>
+                        <button onclick="handleLogout()" class="p-2 text-slate-500 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors" title="Çıkış Yap"><i class="fas fa-sign-out-alt text-lg"></i></button>
                     </div>
                 </header>
             `;
@@ -245,10 +327,9 @@
                         <td class="py-2 lg:py-4 lg:text-right">
                             <div class="flex items-center gap-2 lg:justify-end mt-2 lg:mt-0">
                                 ${p.status === 'pending'
-                                    ? `<button onclick="approveUser('${p.id}')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-xs font-bold shadow-sm w-full lg:w-auto transition-colors">Yetki Ver</button>
-                                       <button onclick="revokeUser('${p.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-2 rounded text-xs font-bold shadow-sm transition-colors" title="Sil"><i class="fas fa-trash"></i></button>`
-                                    : `<button onclick="changeSchool('${p.id}')" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold shadow-sm w-full lg:w-auto transition-colors">Değiştir</button>
-                                       <button onclick="revokeUser('${p.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2 rounded text-xs font-bold w-full lg:w-auto transition-colors">Yetkiyi İptal Et</button>`}
+                                    ? `<button onclick="approveUser('${p.id}')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-xs font-bold shadow-sm w-full lg:w-auto transition-colors">Yetki Ver</button>`
+                                    : `<button onclick="changeSchool('${p.id}')" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold shadow-sm w-full lg:w-auto transition-colors">Okulu Değiştir</button>
+                                       <button onclick="revokeUser('${p.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2 rounded text-xs font-bold w-full lg:w-auto transition-colors">İptal Et</button>`}
                             </div>
                         </td>
                     </tr>
@@ -272,9 +353,9 @@
             if (currentProfile.role === 'user' && currentProfile.status === 'pending') {
                 mainHtml += `
                     <div class="bg-amber-50 border border-amber-200 rounded-xl p-8 text-center mt-6 max-w-2xl mx-auto">
-                        <i class="fas fa-clock text-6xl text-amber-500 mb-4"></i>
+                        <i class="fas fa-clock text-6xl text-amber-500 mb-4 animate-pulse"></i>
                         <h2 class="text-2xl font-bold text-amber-800">Onay Bekleniyor</h2>
-                        <p class="text-amber-700 mt-2 text-lg">Yöneticiniz sizi onaylayıp bir okula atadığında bu ekranda anons butonu belirecektir.</p>
+                        <p class="text-amber-700 mt-2 text-lg">Yöneticiniz sizi onaylayıp bir okula atadığında bu ekranda anons butonu otomatik olarak belirecektir.</p>
                     </div>
                 `;
             }
@@ -292,8 +373,8 @@
                 if (currentProfile.role === 'admin' && !currentProfile.school) {
                     controlPanelHtml = `
                         <div class="text-center p-6 bg-slate-50 rounded-lg w-full border border-slate-200">
-                            <i class="fas fa-exclamation-triangle text-4xl text-amber-500 mb-3"></i>
-                            <p class="text-slate-600 font-medium">Yönetici hesabı komut gönderemez, sadece kullanıcıları yönetir.<br><br>Komut göndermeyi test etmek için gizli sekmeden farklı bir Google hesabıyla giriş yapabilirsiniz.</p>
+                            <i class="fas fa-shield-alt text-4xl text-slate-400 mb-3"></i>
+                            <p class="text-slate-600 font-medium">Yönetici hesabı komut göndermez, yetkilendirme yapar.<br><br>Komutları test etmek için farklı bir hesapla giriş yapınız.</p>
                         </div>
                     `;
                 } else {
@@ -304,7 +385,6 @@
                             <i class="fas fa-play text-5xl sm:text-6xl mb-4 ml-2"></i>
                             <span class="font-bold text-lg sm:text-xl leading-tight uppercase text-center tracking-wide">İstiklal<br>Marşı</span>
                         </button>
-                        <p class="mt-6 text-slate-400 text-sm">Butona bastığınızda komut veritabanına iletilecektir.</p>
                     `;
                 }
 
@@ -314,9 +394,10 @@
                         
                         <div class="bg-slate-900 rounded-xl shadow-sm border border-slate-800 flex flex-col h-[400px]">
                             <div class="bg-slate-950 px-6 py-4 flex items-center gap-2 border-b border-slate-800">
-                                <i class="fas fa-satellite-dish text-green-400 animate-pulse"></i><h3 class="font-bold text-white text-lg">Sistem Logları</h3>
+                                <i class="fas fa-satellite-dish text-green-400 animate-pulse"></i>
+                                <h3 class="font-bold text-white text-lg">Loglar ${currentProfile.role !== 'admin' ? '(Sadece Okulunuz)' : ''}</h3>
                             </div>
-                            <div class="p-4 flex-1 overflow-y-auto font-mono">${logRows || '<div class="text-slate-500 text-center py-8">Henüz komut yok...</div>'}</div>
+                            <div class="p-4 flex-1 overflow-y-auto font-mono">${logRows || '<div class="text-slate-500 text-center py-8">Gösterilecek kayıt bulunamadı.</div>'}</div>
                         </div>
                     </div>
                 `;

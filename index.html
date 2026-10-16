@@ -20,7 +20,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, addDoc, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, addDoc, query, orderBy, limit, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAaWmtycFbkjfYj242K5dqvCmfB6XM0ZdY",
@@ -47,7 +47,7 @@
         let allProfiles = [];
         let commands = [];
         let authInitializing = true; 
-        let activeTab = 'play'; // Başlangıç sekmesi
+        let activeTab = 'play';
         
         let unsubMyProfile = null;
         let unsubAllProfiles = null;
@@ -96,25 +96,31 @@
                 if (unsubMyProfile) unsubMyProfile();
                 unsubMyProfile = onSnapshot(profileRef, (docSnap) => {
                     if (docSnap.exists()) {
-                        const oldStatus = currentProfile ? currentProfile.status : null;
+                        const oldProfile = currentProfile ? { ...currentProfile } : null;
                         currentProfile = { id: docSnap.id, ...docSnap.data() };
                         
-                        setupDataListeners();
+                        // Sadece rol, okul veya durum değiştiğinde verileri yeniden dinle
+                        if (!oldProfile || oldProfile.role !== currentProfile.role || oldProfile.status !== currentProfile.status || oldProfile.school !== currentProfile.school) {
+                            setupDataListeners();
+                        }
+                        
                         authInitializing = false;
                         render();
                         
-                        if (oldStatus === 'approved' && currentProfile.status === 'pending') {
-                            showMessage("Yetkiniz iptal edildi.", "warning");
+                        if (oldProfile && oldProfile.status === 'approved' && currentProfile.status === 'pending') {
+                            showMessage("Yetkiniz yönetici tarafından iptal edildi.", "warning");
                         }
                     }
                 }, (error) => {
                     console.error("Profil dinleme hatası:", error);
+                    showMessage("Profilinize erişilemedi. Yetkiniz kısıtlanmış olabilir.", "error");
                     authInitializing = false;
                     render();
                 });
 
             } catch (error) {
                 console.error("Sisteme bağlanırken hata:", error);
+                showMessage("Sistem bağlantı hatası.", "error");
                 authInitializing = false;
                 render();
             }
@@ -123,6 +129,7 @@
         function setupDataListeners() {
             if (!currentProfile) return;
             
+            // Profiller Dinleyicisi (Sadece Admin)
             if (currentProfile.role === 'admin') {
                 if (!unsubAllProfiles) {
                     const profilesRef = collection(db, 'artifacts', appId, 'public', 'data', 'profiles');
@@ -130,25 +137,35 @@
                         allProfiles = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                         allProfiles.sort((a, b) => b.createdAt - a.createdAt);
                         render();
-                    });
+                    }, (error) => console.error("Kullanıcı listesi erişim hatası (Kurallar engellemiş olabilir):", error));
                 }
             } else {
                 if (unsubAllProfiles) { unsubAllProfiles(); unsubAllProfiles = null; }
             }
 
+            // Komutlar Dinleyicisi
             if (currentProfile.status === 'approved') {
                 if (unsubCommands) unsubCommands();
                 
                 const commandsRef = collection(db, 'artifacts', appId, 'public', 'data', 'commands');
-                let q = query(commandsRef, orderBy('timestamp', 'desc'), limit(30));
+                let q;
+
+                if (currentProfile.role === 'admin') {
+                    q = query(commandsRef, orderBy('timestamp', 'desc'), limit(30));
+                } else if (currentProfile.school) {
+                    q = query(commandsRef, where('school', '==', currentProfile.school), orderBy('timestamp', 'desc'), limit(30));
+                } else {
+                    return; // Onaylı ama okulu yoksa (hata durumu) dinleme
+                }
                 
                 unsubCommands = onSnapshot(q, (snapshot) => {
-                    let fetchedCommands = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    if (currentProfile.role !== 'admin') {
-                        fetchedCommands = fetchedCommands.filter(cmd => cmd.school === currentProfile.school);
-                    }
-                    commands = fetchedCommands;
+                    commands = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     render();
+                }, (error) => {
+                    console.error("Komut dinleme hatası:", error);
+                    if(error.message.includes("index")) {
+                        showMessage("Veritabanı indeksi gerekiyor. Lütfen konsolu kontrol edin.", "error");
+                    }
                 });
             } else {
                 if (unsubCommands) { unsubCommands(); unsubCommands = null; }
@@ -159,12 +176,11 @@
         window.handleGoogleLogin = async () => {
             const provider = new GoogleAuthProvider();
             provider.setCustomParameters({ prompt: 'select_account' });
-            
             try {
                 await signInWithPopup(auth, provider);
             } catch (error) {
                 console.error("Giriş Hatası:", error);
-                showMessage("Giriş başarısız.", "error");
+                showMessage("Giriş başarısız: " + error.message, "error");
             }
         };
 
@@ -183,7 +199,8 @@
                 await updateDoc(userRef, { status: 'approved', school: selectEl.value });
                 showMessage("Kullanıcıya yetki verildi!");
             } catch (err) {
-                showMessage("Hata: Yetki verilemedi.", "error");
+                console.error(err);
+                showMessage("Hata: Yetki verilemedi. Kuralları kontrol edin.", "error");
             }
         };
 
@@ -195,17 +212,21 @@
                 await updateDoc(userRef, { school: selectEl.value });
                 showMessage("Kullanıcının okulu başarıyla güncellendi!");
             } catch (err) {
+                console.error(err);
                 showMessage("Okul güncellenemedi.", "error");
             }
         };
 
         window.revokeUser = async (userId) => {
+            if(userId === currentUser.uid) return showMessage("Kendi yetkinizi iptal edemezsiniz!", "error");
             if(!confirm("Bu kullanıcının yetkisini tamamen iptal etmek istediğinize emin misiniz?")) return;
+            
             try {
                 const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', userId);
                 await updateDoc(userRef, { status: 'pending', school: null });
                 showMessage("Kullanıcı yetkisi iptal edildi!", "warning");
             } catch (err) {
+                console.error(err);
                 showMessage("Yetki iptal edilemedi.", "error");
             }
         };
@@ -230,13 +251,13 @@
                 await addDoc(cmdRef, {
                     command: 'PLAY_ANTHEM',
                     school: targetSchool,
-                    triggeredBy: currentProfile.displayName || currentProfile.email.split('@')[0], 
+                    triggeredBy: currentUser.email, // Güvenlik kuralına uyması için E-posta gönderiliyor
                     timestamp: Date.now()
                 });
-                showMessage("Marş Komutu Gönderildi: " + targetSchool);
+                showMessage(targetSchool + " için Marş Komutu Gönderildi!");
             } catch (err) {
-                console.error(err);
-                showMessage("Yetki hatası! Veritabanı kurallarınızı kontrol edin.", "error");
+                console.error("Komut gönderme hatası:", err);
+                showMessage("Yetki hatası! Gönderme reddedildi.", "error");
             }
         };
 
@@ -276,11 +297,9 @@
                 appDiv.innerHTML = `
                     <div class="min-h-screen flex items-center justify-center p-4 bg-slate-100">
                         <div class="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full space-y-6 text-center border-t-4 border-red-600">
-                            
                             <div class="w-32 h-20 mx-auto mb-4 overflow-hidden border border-slate-200 shadow-sm rounded">
                                 <img src="https://upload.wikimedia.org/wikipedia/commons/b/b4/Flag_of_Turkey.svg" class="w-full h-full object-cover" alt="Türk Bayrağı">
                             </div>
-
                             <h1 class="text-3xl font-bold text-gray-800 tracking-tight">İstiklal Marşı<br>Sistemi</h1>
                             <p class="text-gray-500 text-sm mt-2 mb-6">Sisteme erişmek için giriş yapın</p>
                             
@@ -352,9 +371,9 @@
                         <h2 class="text-2xl font-bold text-slate-800 mb-2 z-10 relative">Yönetici Anons Paneli</h2>
                         <p class="text-slate-500 text-sm mb-8 text-center z-10 relative">İstiklal Marşı'nı çalmak istediğiniz okulu seçin.</p>
                         
-                        <div class="w-full max-w-sm mx-auto mb-10 z-10 relative">
+                        <div class="w-full max-w-md mx-auto mb-10 z-10 relative">
                             <select id="admin-school-select" class="w-full border-2 border-slate-300 rounded-lg p-3 text-sm outline-none focus:border-red-500 bg-white font-medium text-slate-700 shadow-sm">
-                                <option value="" disabled selected>Okul Seçiniz...</option>
+                                <option value="" disabled selected>Hedef Okul Seçiniz...</option>
                                 ${SCHOOLS.map(s => `<option value="${s}">${s}</option>`).join('')}
                             </select>
                         </div>

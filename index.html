@@ -5,9 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Okul Zil & Anons Sistemi</title>
-    <!-- Tailwind CSS (Tasarım için) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- FontAwesome (İkonlar için) -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
 <body class="bg-slate-100 text-slate-800 font-sans">
@@ -15,12 +13,10 @@
     <div id="app"></div>
 
     <script type="module">
-        // Firebase kütüphanelerini doğrudan tarayıcıya çekiyoruz
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Sizin Firebase Ayarlarınız
         const firebaseConfig = {
             apiKey: "AIzaSyAaWmtycFbkjfYj242K5dqvCmfB6XM0ZdY",
             authDomain: "zil-far.firebaseapp.com",
@@ -37,7 +33,7 @@
         
         const appId = 'okul-zil-app';
         
-        // GÜNCELLENEN OKUL LİSTESİ
+        // GÜNCELLENEN OKULLAR
         const SCHOOLS = [
             "Karahüyük Ali Akkanat Ortaokulu", 
             "Nimetullah Nahçivani İmam Hatip Ortaokulu", 
@@ -52,7 +48,6 @@
         
         const appDiv = document.getElementById('app');
 
-        // Oturum durumunu dinle
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 currentUser = user;
@@ -62,6 +57,13 @@
                 currentUser = null;
                 currentProfile = null;
                 render();
+            }
+        });
+
+        getRedirectResult(auth).catch((error) => {
+            console.error("Giriş Hatası:", error);
+            if(error.code === 'auth/unauthorized-domain') {
+                alert("Güvenlik Hatası: Lütfen sitenizin linkini Firebase'de Authorized Domains kısmına ekleyin.");
             }
         });
 
@@ -114,18 +116,10 @@
             });
         }
 
-        window.handleGoogleLogin = async () => {
-            const emailInput = document.getElementById('adminEmailInput');
-            if(emailInput) adminEmailConfig = emailInput.value;
-            
+        window.handleGoogleLogin = () => {
             const provider = new GoogleAuthProvider();
             provider.setCustomParameters({ prompt: 'select_account' });
-            
-            try {
-                await signInWithPopup(auth, provider);
-            } catch (error) {
-                alert("Giriş Hatası: " + error.message + "\n\nTarayıcınız açılır pencereleri engelliyor olabilir. Lütfen izin verin.");
-            }
+            signInWithRedirect(auth, provider);
         };
 
         window.handleLogout = async () => { 
@@ -135,16 +129,26 @@
         window.approveUser = async (userId) => {
             const selectEl = document.getElementById('school-select-' + userId);
             if (!selectEl.value) return showMessage("Lütfen önce bir okul seçin!");
-            
             const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', userId);
             await updateDoc(userRef, { status: 'approved', school: selectEl.value });
-            showMessage(selectEl.value + " yetkisi verildi!");
+            showMessage("Kullanıcıya yetki verildi!");
         };
 
+        // YENİ: Okul Değiştirme Fonksiyonu
+        window.changeSchool = async (userId) => {
+            const selectEl = document.getElementById('school-select-' + userId);
+            if (!selectEl.value) return showMessage("Lütfen bir okul seçin!");
+            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', userId);
+            await updateDoc(userRef, { school: selectEl.value });
+            showMessage("Kullanıcının okulu güncellendi!");
+        };
+
+        // YENİ/GÜNCEL: Yetki İptal Fonksiyonu
         window.revokeUser = async (userId) => {
+            if(!confirm("Bu kullanıcının yetkisini iptal etmek istediğinize emin misiniz?")) return;
             const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', userId);
             await updateDoc(userRef, { status: 'pending', school: null });
-            showMessage("Kullanıcı yetkisi iptal edildi!");
+            showMessage("Yetki iptal edildi!");
         };
 
         window.sendPlayCommand = async () => {
@@ -167,7 +171,6 @@
             setTimeout(() => msgDiv.remove(), 3000);
         }
 
-        // HTML Arayüzü Çizimi
         function render() {
             if (!currentUser) {
                 appDiv.innerHTML = `
@@ -176,15 +179,9 @@
                             <div class="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <i class="fas fa-broadcast-tower text-2xl text-blue-600"></i>
                             </div>
-                            <h1 class="text-2xl font-bold text-gray-800">Okul Zil Sistemi</h1>
+                            <h1 class="text-2xl font-bold text-gray-800">Okul Zil & Anons Sistemi</h1>
                             <p class="text-gray-500 text-sm mt-2 mb-6">Sisteme erişmek için giriş yapın</p>
 
-                            <div class="bg-slate-50 p-4 rounded-lg border border-slate-200 text-left mb-4">
-                                <label class="block text-slate-700 text-sm font-bold mb-1">Yönetici E-postası:</label>
-                                <input type="email" id="adminEmailInput" value="${adminEmailConfig}" class="w-full p-2 border border-slate-300 rounded outline-none focus:border-blue-500 text-sm">
-                                <p class="text-xs text-slate-500 mt-2">* Bu mail ile giriş yapan hesap otomatik Yönetici (Admin) olur.</p>
-                            </div>
-                            
                             <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center gap-3 bg-white border-2 border-slate-200 text-slate-700 font-bold py-3 px-4 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
                                 <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-5 h-5" alt="Google">
                                 Google İle Giriş Yap
@@ -220,23 +217,27 @@
 
             if (currentProfile.role === 'admin') {
                 let rows = allProfiles.filter(p => p.email !== currentProfile.email).map(p => `
-                    <tr class="border-b border-slate-100 text-sm">
-                        <td class="py-4 font-medium">${p.displayName}<br><span class="text-xs text-slate-400 font-normal">${p.email}</span></td>
-                        <td class="py-4">
+                    <tr class="border-b border-slate-100 text-sm flex flex-col lg:table-row py-4 lg:py-0">
+                        <td class="py-2 lg:py-4 font-medium">${p.displayName}<br><span class="text-xs text-slate-400 font-normal">${p.email}</span></td>
+                        <td class="py-2 lg:py-4">
                             ${p.status === 'approved' 
                                 ? '<span class="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold whitespace-nowrap"><i class="fas fa-check"></i> Onaylı</span>' 
                                 : '<span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold whitespace-nowrap"><i class="fas fa-clock"></i> Bekliyor</span>'}
                         </td>
-                        <td class="py-4">
-                            <select id="school-select-${p.id}" class="border border-slate-300 rounded p-2 text-sm outline-none bg-white w-full max-w-[200px]">
-                                <option value="" disabled ${!p.school ? 'selected' : ''}>Okul Seç</option>
+                        <td class="py-2 lg:py-4">
+                            <select id="school-select-${p.id}" class="border border-slate-300 rounded p-2 text-xs lg:text-sm outline-none bg-white w-full lg:max-w-[250px]">
+                                <option value="" disabled ${!p.school ? 'selected' : ''}>Okul Seçin</option>
                                 ${SCHOOLS.map(s => `<option value="${s}" ${p.school === s ? 'selected' : ''}>${s}</option>`).join('')}
                             </select>
                         </td>
-                        <td class="py-4 text-right">
-                            ${p.status === 'pending'
-                                ? `<button onclick="approveUser('${p.id}')" class="bg-blue-600 text-white px-4 py-2 rounded text-xs font-bold shadow-sm w-full lg:w-auto mb-1">Yetki Ver</button>`
-                                : `<button onclick="revokeUser('${p.id}')" class="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded text-xs font-bold w-full lg:w-auto">İptal</button>`}
+                        <td class="py-2 lg:py-4 lg:text-right">
+                            <div class="flex items-center gap-2 lg:justify-end mt-2 lg:mt-0">
+                                ${p.status === 'pending'
+                                    ? `<button onclick="approveUser('${p.id}')" class="bg-blue-600 text-white px-4 py-2 rounded text-xs font-bold shadow-sm w-full lg:w-auto">Yetki Ver</button>
+                                       <button onclick="revokeUser('${p.id}')" class="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded text-xs font-bold shadow-sm"><i class="fas fa-trash"></i></button>`
+                                    : `<button onclick="changeSchool('${p.id}')" class="bg-emerald-500 text-white px-4 py-2 rounded text-xs font-bold shadow-sm w-full lg:w-auto">Değiştir</button>
+                                       <button onclick="revokeUser('${p.id}')" class="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded text-xs font-bold w-full lg:w-auto">İptal Et</button>`}
+                            </div>
                         </td>
                     </tr>
                 `).join('');
@@ -246,10 +247,10 @@
                         <div class="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
                             <i class="fas fa-users text-slate-600"></i><h2 class="font-bold text-lg">Kullanıcı Yetkilendirme Paneli</h2>
                         </div>
-                        <div class="p-6 overflow-x-auto">
-                            <table class="w-full text-left border-collapse min-w-[500px]">
-                                <thead><tr class="border-b border-slate-200 text-sm text-slate-500"><th class="pb-3">Kullanıcı</th><th class="pb-3">Durum</th><th class="pb-3">Okul</th><th class="pb-3 text-right">İşlem</th></tr></thead>
-                                <tbody>${rows.length > 0 ? rows : '<tr><td colspan="4" class="py-8 text-center text-slate-500">Sisteme henüz başka kimse kayıt olmamış.</td></tr>'}</tbody>
+                        <div class="p-4 lg:p-6 overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="hidden lg:table-header-group"><tr class="border-b border-slate-200 text-sm text-slate-500"><th class="pb-3">Kullanıcı</th><th class="pb-3">Durum</th><th class="pb-3">Okul</th><th class="pb-3 text-right">İşlem</th></tr></thead>
+                                <tbody class="divide-y divide-slate-100 lg:divide-y-0">${rows.length > 0 ? rows : '<tr><td colspan="4" class="py-8 text-center text-slate-500">Sisteme henüz başka kimse kayıt olmamış.</td></tr>'}</tbody>
                             </table>
                         </div>
                     </div>
@@ -269,7 +270,7 @@
             if (currentProfile.status === 'approved') {
                 let logRows = commands.map(cmd => `
                     <div class="bg-slate-800 p-3 rounded border border-slate-700 text-xs text-slate-300 mb-2">
-                        <div class="flex justify-between mb-1"><span class="text-green-400 font-bold">[${new Date(cmd.timestamp).toLocaleTimeString()}]</span><span class="bg-blue-900 text-blue-300 px-2 py-0.5 rounded text-[10px]">${cmd.school}</span></div>
+                        <div class="flex justify-between items-start mb-1 gap-2"><span class="text-green-400 font-bold whitespace-nowrap">[${new Date(cmd.timestamp).toLocaleTimeString()}]</span><span class="bg-blue-900 text-blue-300 px-2 py-0.5 rounded text-[10px] text-right leading-tight">${cmd.school}</span></div>
                         <div class="text-yellow-400 font-bold text-sm">${cmd.command}</div>
                         <div class="text-slate-500 mt-1 truncate">Kim: ${cmd.triggeredBy}</div>
                     </div>
@@ -280,16 +281,16 @@
                     controlPanelHtml = `
                         <div class="text-center p-6 bg-slate-50 rounded-lg w-full border border-slate-200">
                             <i class="fas fa-exclamation-triangle text-4xl text-amber-500 mb-3"></i>
-                            <p class="text-slate-600 font-medium">Yönetici hesabı komut gönderemez, sadece kullanıcıları yönetir.<br><br>Komut göndermeyi test etmek için gizli sekmeden farklı bir Google hesabıyla giriş yapabilirsiniz.</p>
+                            <p class="text-slate-600 font-medium">Yönetici hesabı komut gönderemez, sadece kullanıcıları yönetir.<br><br>Komut göndermeyi test etmek için gizli sekmeden farklı bir hesapla giriş yapabilirsiniz.</p>
                         </div>
                     `;
                 } else {
                     controlPanelHtml = `
                         <h2 class="text-2xl font-bold text-slate-800 mb-2">Anons Paneli</h2>
                         <p class="text-slate-500 text-lg mb-8 text-center">Yetkili Okul:<br><strong class="text-blue-600 text-sm">${currentProfile.school}</strong></p>
-                        <button onclick="sendPlayCommand()" class="relative group bg-red-600 hover:bg-red-700 text-white rounded-full w-56 h-56 flex flex-col items-center justify-center shadow-[0_10px_20px_rgba(220,38,38,0.3)] transition-transform active:scale-95 mx-auto">
-                            <i class="fas fa-play text-6xl mb-4 ml-2"></i>
-                            <span class="font-bold text-xl leading-tight uppercase text-center tracking-wide">İstiklal<br>Marşı</span>
+                        <button onclick="sendPlayCommand()" class="relative group bg-red-600 hover:bg-red-700 text-white rounded-full w-48 h-48 sm:w-56 sm:h-56 flex flex-col items-center justify-center shadow-[0_10px_20px_rgba(220,38,38,0.3)] transition-transform active:scale-95 mx-auto">
+                            <i class="fas fa-play text-5xl sm:text-6xl mb-4 ml-2"></i>
+                            <span class="font-bold text-lg sm:text-xl leading-tight uppercase text-center tracking-wide">İstiklal<br>Marşı</span>
                         </button>
                         <p class="mt-6 text-slate-400 text-sm">Butona bastığınızda komut veritabanına iletilecektir.</p>
                     `;

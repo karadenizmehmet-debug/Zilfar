@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -13,7 +14,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = {
@@ -44,7 +45,7 @@
         let allProfiles = [];
         let commands = [];
         let adminEmailConfig = 'karadenizmehmet@gmail.com'; 
-        let authInitializing = true; // YENİ: Firebase kontrol durumu
+        let authInitializing = true; // Yükleniyor durumu
         
         const appDiv = document.getElementById('app');
 
@@ -59,13 +60,6 @@
                 currentProfile = null;
                 authInitializing = false;
                 render();
-            }
-        });
-
-        getRedirectResult(auth).catch((error) => {
-            console.error("Giriş Hatası:", error);
-            if(error.code === 'auth/unauthorized-domain') {
-                alert("Güvenlik Hatası: Lütfen sitenizin linkini Firebase'de Authorized Domains kısmına ekleyin.");
             }
         });
 
@@ -94,7 +88,7 @@
                 await setDoc(profileRef, newProfile);
                 currentProfile = { id: user.uid, ...newProfile };
             }
-            authInitializing = false; // Veri yüklendi, artık render edilebilir
+            authInitializing = false; 
             render();
         }
 
@@ -119,12 +113,15 @@
             });
         }
 
+        // DİREKT POPUP İLE GİRİŞ (Sayfa yenilenmesini engeller, girişi unutmaz)
         window.handleGoogleLogin = () => {
-            authInitializing = true;
-            render();
             const provider = new GoogleAuthProvider();
             provider.setCustomParameters({ prompt: 'select_account' });
-            signInWithRedirect(auth, provider);
+            
+            signInWithPopup(auth, provider).catch((error) => {
+                console.error("Giriş Hatası:", error);
+                alert("Giriş yapılamadı: " + error.message + "\nLütfen tarayıcınızın açılır pencerelere izin verdiğinden emin olun.");
+            });
         };
 
         window.handleLogout = async () => { 
@@ -181,7 +178,7 @@
         }
 
         function render() {
-            // YENİ: Yükleniyor Ekranı
+            // Yükleniyor Ekranı
             if (authInitializing) {
                 appDiv.innerHTML = `
                     <div class="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-100">
@@ -333,3 +330,4 @@
     </script>
 </body>
 </html>
+```

@@ -36,7 +36,13 @@
         const db = getFirestore(app);
         
         const appId = 'okul-zil-app';
-        const SCHOOLS = ["Okul 1", "Okul 2", "Okul 3"];
+        
+        // GÜNCELLENEN OKUL LİSTESİ
+        const SCHOOLS = [
+            "Karahüyük Ali Akkanat Ortaokulu", 
+            "Nimetullah Nahçivani İmam Hatip Ortaokulu", 
+            "Şehit Coşkun Karabulut İmam Hatip Ortaokulu"
+        ];
 
         let currentUser = null;
         let currentProfile = null;
@@ -118,7 +124,7 @@
             try {
                 await signInWithPopup(auth, provider);
             } catch (error) {
-                alert("Giriş Hatası: " + error.message);
+                alert("Giriş Hatası: " + error.message + "\n\nTarayıcınız açılır pencereleri engelliyor olabilir. Lütfen izin verin.");
             }
         };
 
@@ -222,7 +228,7 @@
                                 : '<span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold whitespace-nowrap"><i class="fas fa-clock"></i> Bekliyor</span>'}
                         </td>
                         <td class="py-4">
-                            <select id="school-select-${p.id}" class="border border-slate-300 rounded p-2 text-sm outline-none bg-white w-full max-w-[150px]">
+                            <select id="school-select-${p.id}" class="border border-slate-300 rounded p-2 text-sm outline-none bg-white w-full max-w-[200px]">
                                 <option value="" disabled ${!p.school ? 'selected' : ''}>Okul Seç</option>
                                 ${SCHOOLS.map(s => `<option value="${s}" ${p.school === s ? 'selected' : ''}>${s}</option>`).join('')}
                             </select>
@@ -263,7 +269,7 @@
             if (currentProfile.status === 'approved') {
                 let logRows = commands.map(cmd => `
                     <div class="bg-slate-800 p-3 rounded border border-slate-700 text-xs text-slate-300 mb-2">
-                        <div class="flex justify-between mb-1"><span class="text-green-400 font-bold">[${new Date(cmd.timestamp).toLocaleTimeString()}]</span><span class="bg-blue-900 text-blue-300 px-2 py-0.5 rounded">${cmd.school}</span></div>
+                        <div class="flex justify-between mb-1"><span class="text-green-400 font-bold">[${new Date(cmd.timestamp).toLocaleTimeString()}]</span><span class="bg-blue-900 text-blue-300 px-2 py-0.5 rounded text-[10px]">${cmd.school}</span></div>
                         <div class="text-yellow-400 font-bold text-sm">${cmd.command}</div>
                         <div class="text-slate-500 mt-1 truncate">Kim: ${cmd.triggeredBy}</div>
                     </div>
@@ -280,7 +286,7 @@
                 } else {
                     controlPanelHtml = `
                         <h2 class="text-2xl font-bold text-slate-800 mb-2">Anons Paneli</h2>
-                        <p class="text-slate-500 text-lg mb-8">Yetkili Okul: <strong class="text-blue-600">${currentProfile.school}</strong></p>
+                        <p class="text-slate-500 text-lg mb-8 text-center">Yetkili Okul:<br><strong class="text-blue-600 text-sm">${currentProfile.school}</strong></p>
                         <button onclick="sendPlayCommand()" class="relative group bg-red-600 hover:bg-red-700 text-white rounded-full w-56 h-56 flex flex-col items-center justify-center shadow-[0_10px_20px_rgba(220,38,38,0.3)] transition-transform active:scale-95 mx-auto">
                             <i class="fas fa-play text-6xl mb-4 ml-2"></i>
                             <span class="font-bold text-xl leading-tight uppercase text-center tracking-wide">İstiklal<br>Marşı</span>

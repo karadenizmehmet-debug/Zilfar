@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -14,7 +13,7 @@
 
     <!-- Mehmet Karadeniz İmzası -->
     <div class="fixed bottom-2 right-3 text-[11px] text-slate-500 font-medium bg-white/80 px-3 py-1.5 rounded-full backdrop-blur-sm border border-slate-200 shadow-sm z-50">
-        <i class="fas fa-code text-blue-500 mr-1"></i> Mehmet Karadeniz tarafından yapılmıştır
+        <i class="fas fa-code text-red-500 mr-1"></i> Mehmet Karadeniz tarafından yapılmıştır
     </div>
 
     <script type="module">
@@ -155,7 +154,7 @@
                 } else if (currentProfile.school) {
                     q = query(commandsRef, where('school', '==', currentProfile.school), orderBy('timestamp', 'desc'), limit(30));
                 } else {
-                    return; // Onaylı ama okulu yoksa (hata durumu) dinleme
+                    return; // Onaylı ama okulu yoksa dinleme
                 }
                 
                 unsubCommands = onSnapshot(q, (snapshot) => {
@@ -251,7 +250,8 @@
                 await addDoc(cmdRef, {
                     command: 'PLAY_ANTHEM',
                     school: targetSchool,
-                    triggeredBy: currentUser.email, // Güvenlik kuralına uyması için E-posta gönderiliyor
+                    // DÜZELTME: Artık kullanıcının adını/soyadını kaydediyoruz
+                    triggeredBy: currentProfile.displayName, 
                     timestamp: Date.now()
                 });
                 showMessage(targetSchool + " için Marş Komutu Gönderildi!");
@@ -287,7 +287,7 @@
                 appDiv.innerHTML = `
                     <div class="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-100">
                         <i class="fas fa-circle-notch fa-spin text-5xl text-red-600 mb-4"></i>
-                        <p class="text-slate-500 font-medium">Bağlantı Kuruluyor...</p>
+                        <p class="text-slate-500 font-medium">Sistem Yükleniyor...</p>
                     </div>
                 `;
                 return;
@@ -297,10 +297,10 @@
                 appDiv.innerHTML = `
                     <div class="min-h-screen flex items-center justify-center p-4 bg-slate-100">
                         <div class="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full space-y-6 text-center border-t-4 border-red-600">
-                            <div class="w-32 h-20 mx-auto mb-4 overflow-hidden border border-slate-200 shadow-sm rounded">
+                            <div class="w-full h-32 mx-auto mb-4 overflow-hidden border border-slate-200 shadow-sm rounded flex items-center justify-center bg-white">
                                 <img src="https://upload.wikimedia.org/wikipedia/commons/b/b4/Flag_of_Turkey.svg" class="w-full h-full object-cover" alt="Türk Bayrağı">
                             </div>
-                            <h1 class="text-3xl font-bold text-gray-800 tracking-tight">İstiklal Marşı<br>Sistemi</h1>
+                            <h1 class="text-3xl font-bold text-gray-800 tracking-tight">İstiklal Marşı Sistemi</h1>
                             <p class="text-gray-500 text-sm mt-2 mb-6">Sisteme erişmek için giriş yapın</p>
                             
                             <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center gap-3 bg-white border-2 border-slate-200 text-slate-700 font-bold py-3 px-4 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">

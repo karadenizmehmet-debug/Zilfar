@@ -255,10 +255,10 @@
             let targetSchool = currentProfile.school;
             if (currentProfile.role === 'admin') {
                 const selectEl = document.getElementById('admin-school-select');
-                if (!selectEl || !selectEl.value) {
+                targetSchool = (selectEl && selectEl.value) || selectedAdminSchool;
+                if (!targetSchool || !SCHOOLS.includes(targetSchool)) {
                     return showMessage("Lütfen işlem yapmak istediğiniz okulu seçin!", "error");
                 }
-                targetSchool = selectEl.value;
                 window.rememberAdminSchool(targetSchool);
             }
 
@@ -311,10 +311,10 @@
 
             if (currentProfile.role === 'admin') {
                 const selectEl = document.getElementById('admin-school-select');
-                if (!selectEl || !selectEl.value) {
+                targetSchool = (selectEl && selectEl.value) || selectedAdminSchool;
+                if (!targetSchool || !SCHOOLS.includes(targetSchool)) {
                     return showMessage("Lütfen anons yapmak istediğiniz okulu seçin!", "error");
                 }
-                targetSchool = selectEl.value;
                 window.rememberAdminSchool(targetSchool);
             }
 

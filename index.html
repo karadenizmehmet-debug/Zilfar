@@ -47,6 +47,8 @@
         let commands = [];
         let authInitializing = true; 
         let activeTab = 'play';
+        // Yinelenen komutları önlemek için gönderim kilidi.
+        let commandSending = false;
         
         let unsubMyProfile = null;
         let unsubAllProfiles = null;
@@ -230,7 +232,62 @@
             }
         };
 
+        async function sendAudioCommand(command, label) {
+            if (commandSending) return;
+            if (!currentUser || !currentProfile) {
+                return showMessage("Önce Google hesabınızla giriş yapın.", "error");
+            }
+
+            let targetSchool = currentProfile.school;
+            if (currentProfile.role === 'admin') {
+                const selectEl = document.getElementById('admin-school-select');
+                if (!selectEl || !selectEl.value) {
+                    return showMessage("Lütfen işlem yapmak istediğiniz okulu seçin!", "error");
+                }
+                targetSchool = selectEl.value;
+            }
+
+            if (!targetSchool || currentProfile.status !== 'approved') {
+                return showMessage("Yetkiniz bulunmuyor veya okul seçilmedi.", "error");
+            }
+
+            commandSending = true;
+            const buttons = document.querySelectorAll('[data-audio-command-button]');
+            buttons.forEach((button) => {
+                button.disabled = true;
+                button.classList.add('opacity-60', 'cursor-not-allowed');
+                button.setAttribute('aria-busy', 'true');
+            });
+
+            try {
+                const cmdRef = collection(db, 'artifacts', appId, 'public', 'data', 'commands');
+                await addDoc(cmdRef, {
+                    command,
+                    school: targetSchool,
+                    triggeredBy: currentProfile.displayName || currentUser.email || "Yetkili",
+                    timestamp: Date.now()
+                });
+                showMessage(targetSchool + " için " + label + " komutu gönderildi.");
+            } catch (err) {
+                console.error(label + " komutu gönderme hatası:", err);
+                showMessage("Komut gönderilemedi: " + (err?.message || "Bağlantı hatası"), "error");
+            } finally {
+                commandSending = false;
+                buttons.forEach((button) => {
+                    button.disabled = false;
+                    button.classList.remove('opacity-60', 'cursor-not-allowed');
+                    button.removeAttribute('aria-busy');
+                });
+            }
+        }
+
+        window.sendStopCommand = () => sendAudioCommand('STOP_ANTHEM', 'Durdur');
+        window.sendPauseCommand = () => sendAudioCommand('PAUSE_ANTHEM', 'Duraklat');
+        window.sendResumeCommand = () => sendAudioCommand('RESUME_ANTHEM', 'Devam ettir');
+
         window.sendPlayCommand = async () => {
+            // Hızlı çift tıklama veya gecikme nedeniyle yinelenen komutları engelle.
+            if (commandSending) return;
             if (!currentUser || !currentProfile) {
                 return showMessage("Önce Google hesabınızla giriş yapın.", "error");
             }
@@ -249,10 +306,18 @@
                 return showMessage("Yetkiniz bulunmuyor veya okul seçilmedi.", "error");
             }
 
+            commandSending = true;
+            const playButtons = document.querySelectorAll('[data-play-button]');
+            playButtons.forEach((button) => {
+                button.disabled = true;
+                button.classList.add('opacity-60', 'cursor-not-allowed');
+                button.setAttribute('aria-busy', 'true');
+            });
+
             try {
                 const cmdRef = collection(db, 'artifacts', appId, 'public', 'data', 'commands');
 
-                // Firestore Rules ile birebir uyumlu alanlar.
+                // Mevcut Firestore komut yapısı korunuyor.
                 await addDoc(cmdRef, {
                     command: 'PLAY_ANTHEM',
                     school: targetSchool,
@@ -268,6 +333,13 @@
                 } else {
                     showMessage("Komut gönderilemedi: " + (err?.message || "Bağlantı hatası"), "error");
                 }
+            } finally {
+                commandSending = false;
+                playButtons.forEach((button) => {
+                    button.disabled = false;
+                    button.classList.remove('opacity-60', 'cursor-not-allowed');
+                    button.removeAttribute('aria-busy');
+                });
             }
         };
 
@@ -388,10 +460,24 @@
                             </select>
                         </div>
 
-                        <button onclick="sendPlayCommand()" class="z-10 relative group bg-red-600 hover:bg-red-700 text-white rounded-full w-48 h-48 sm:w-64 sm:h-64 flex flex-col items-center justify-center shadow-[0_10px_20px_rgba(220,38,38,0.3)] hover:shadow-[0_15px_30px_rgba(220,38,38,0.5)] transition-all active:scale-95 mx-auto">
-                            <i class="fas fa-play text-5xl sm:text-7xl mb-4 ml-2"></i>
-                            <span class="font-bold text-xl sm:text-2xl leading-tight uppercase text-center tracking-wide">İstiklal<br>Marşı</span>
-                        </button>
+                        <div class="flex flex-col items-center gap-4 z-10 relative">
+                            <button data-play-button data-audio-command-button onclick="sendPlayCommand()" class="group bg-red-600 hover:bg-red-700 text-white rounded-full w-48 h-48 sm:w-56 sm:h-56 flex flex-col items-center justify-center shadow-lg transition-all active:scale-95">
+                                <i class="fas fa-play text-5xl sm:text-6xl mb-4 ml-2"></i>
+                                <span class="font-bold text-xl sm:text-2xl leading-tight uppercase text-center tracking-wide">İstiklal<br>Marşı</span>
+                                <span class="text-xs mt-2 opacity-90">Çal</span>
+                            </button>
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-lg">
+                                <button data-audio-command-button onclick="sendStopCommand()" class="bg-slate-800 hover:bg-slate-900 text-white rounded-xl px-5 py-4 font-bold shadow transition active:scale-95">
+                                    <i class="fas fa-stop mr-2"></i>Durdur
+                                </button>
+                                <button data-audio-command-button onclick="sendPauseCommand()" class="bg-amber-500 hover:bg-amber-600 text-white rounded-xl px-5 py-4 font-bold shadow transition active:scale-95">
+                                    <i class="fas fa-pause mr-2"></i>Duraklat
+                                </button>
+                                <button data-audio-command-button onclick="sendResumeCommand()" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-5 py-4 font-bold shadow transition active:scale-95 col-span-2 sm:col-span-1">
+                                    <i class="fas fa-play mr-2"></i>Devam Et
+                                </button>
+                            </div>
+                        </div>
                     `;
                 } else {
                     controlPanelHtml = `
@@ -399,10 +485,24 @@
                         <div class="bg-red-50 border border-red-100 rounded-lg p-3 mb-10 z-10 relative inline-block">
                             <p class="text-slate-600 text-sm">Yetkili Okul: <strong class="text-red-700 block text-base">${currentProfile.school}</strong></p>
                         </div>
-                        <button onclick="sendPlayCommand()" class="z-10 relative group bg-red-600 hover:bg-red-700 text-white rounded-full w-48 h-48 sm:w-64 sm:h-64 flex flex-col items-center justify-center shadow-[0_10px_20px_rgba(220,38,38,0.3)] hover:shadow-[0_15px_30px_rgba(220,38,38,0.5)] transition-all active:scale-95 mx-auto">
-                            <i class="fas fa-play text-5xl sm:text-7xl mb-4 ml-2"></i>
-                            <span class="font-bold text-xl sm:text-2xl leading-tight uppercase text-center tracking-wide">İstiklal<br>Marşı</span>
-                        </button>
+                        <div class="flex flex-col items-center gap-4 z-10 relative">
+                            <button data-play-button data-audio-command-button onclick="sendPlayCommand()" class="group bg-red-600 hover:bg-red-700 text-white rounded-full w-48 h-48 sm:w-56 sm:h-56 flex flex-col items-center justify-center shadow-lg transition-all active:scale-95">
+                                <i class="fas fa-play text-5xl sm:text-6xl mb-4 ml-2"></i>
+                                <span class="font-bold text-xl sm:text-2xl leading-tight uppercase text-center tracking-wide">İstiklal<br>Marşı</span>
+                                <span class="text-xs mt-2 opacity-90">Çal</span>
+                            </button>
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-lg">
+                                <button data-audio-command-button onclick="sendStopCommand()" class="bg-slate-800 hover:bg-slate-900 text-white rounded-xl px-5 py-4 font-bold shadow transition active:scale-95">
+                                    <i class="fas fa-stop mr-2"></i>Durdur
+                                </button>
+                                <button data-audio-command-button onclick="sendPauseCommand()" class="bg-amber-500 hover:bg-amber-600 text-white rounded-xl px-5 py-4 font-bold shadow transition active:scale-95">
+                                    <i class="fas fa-pause mr-2"></i>Duraklat
+                                </button>
+                                <button data-audio-command-button onclick="sendResumeCommand()" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-5 py-4 font-bold shadow transition active:scale-95 col-span-2 sm:col-span-1">
+                                    <i class="fas fa-play mr-2"></i>Devam Et
+                                </button>
+                            </div>
+                        </div>
                     `;
                 }
 

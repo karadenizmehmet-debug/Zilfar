@@ -41,6 +41,20 @@
             "Şehit Coşkun Karabulut İmam Hatip Ortaokulu"
         ];
 
+        // Yönetici için son seçilen okulu bu tarayıcıda sakla.
+        const SAVED_SCHOOL_KEY = 'istiklal_admin_selected_school';
+        let selectedAdminSchool = localStorage.getItem(SAVED_SCHOOL_KEY) || '';
+        if (!SCHOOLS.includes(selectedAdminSchool)) selectedAdminSchool = '';
+
+        window.rememberAdminSchool = (school) => {
+            selectedAdminSchool = SCHOOLS.includes(school) ? school : '';
+            if (selectedAdminSchool) {
+                localStorage.setItem(SAVED_SCHOOL_KEY, selectedAdminSchool);
+            } else {
+                localStorage.removeItem(SAVED_SCHOOL_KEY);
+            }
+        };
+
         let currentUser = null;
         let currentProfile = null;
         let allProfiles = [];
@@ -245,6 +259,7 @@
                     return showMessage("Lütfen işlem yapmak istediğiniz okulu seçin!", "error");
                 }
                 targetSchool = selectEl.value;
+                window.rememberAdminSchool(targetSchool);
             }
 
             if (!targetSchool || currentProfile.status !== 'approved') {
@@ -300,6 +315,7 @@
                     return showMessage("Lütfen anons yapmak istediğiniz okulu seçin!", "error");
                 }
                 targetSchool = selectEl.value;
+                window.rememberAdminSchool(targetSchool);
             }
 
             if (!targetSchool || currentProfile.status !== 'approved') {
@@ -454,10 +470,11 @@
                         <p class="text-slate-500 text-sm mb-8 text-center z-10 relative">İstiklal Marşı'nı çalmak istediğiniz okulu seçin.</p>
                         
                         <div class="w-full max-w-md mx-auto mb-10 z-10 relative">
-                            <select id="admin-school-select" class="w-full border-2 border-slate-300 rounded-lg p-3 text-sm outline-none focus:border-red-500 bg-white font-medium text-slate-700 shadow-sm">
-                                <option value="" disabled selected>Hedef Okul Seçiniz...</option>
-                                ${SCHOOLS.map(s => `<option value="${s}">${s}</option>`).join('')}
+                            <select id="admin-school-select" onchange="rememberAdminSchool(this.value)" class="w-full border-2 border-slate-300 rounded-lg p-3 text-sm outline-none focus:border-red-500 bg-white font-medium text-slate-700 shadow-sm">
+                                <option value="" disabled ${!selectedAdminSchool ? 'selected' : ''}>Hedef Okul Seçiniz...</option>
+                                ${SCHOOLS.map(s => `<option value="${s}" ${selectedAdminSchool === s ? 'selected' : ''}>${s}</option>`).join('')}
                             </select>
+                            <p class="text-xs text-slate-500 mt-2 text-center"><i class="fas fa-save mr-1"></i>Seçtiğiniz okul bu tarayıcıda hatırlanır; isterseniz listeden değiştirebilirsiniz.</p>
                         </div>
 
                         <div class="flex flex-col items-center gap-4 z-10 relative">

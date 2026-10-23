@@ -20,6 +20,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, addDoc, query, orderBy, limit, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getDatabase, ref as rtdbRef, set as rtdbSet } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAaWmtycFbkjfYj242K5dqvCmfB6XM0ZdY",
@@ -33,13 +34,21 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
+        const rtdb = getDatabase(app, "https://zil-far-default-rtdb.europe-west1.firebasedatabase.app");
         
         const appId = 'okul-zil-app';
         const SCHOOLS = [
-            "Karahüyük Ali Akkanat Ortaokulu", 
-            "Nimetullah Nahçivani İmam Hatip Ortaokulu", 
+            "Karahüyük Ali Akkanat Ortaokulu",
+            "Nimetullah Nahçivani İmam Hatip Ortaokulu",
             "Şehit Coşkun Karabulut İmam Hatip Ortaokulu"
         ];
+
+        // Python alıcısının dinlediği RTDB okul anahtarlarıyla birebir aynı olmalı.
+        const SCHOOL_KEYS = {
+            "Karahüyük Ali Akkanat Ortaokulu": "karahuyuk_ali_akkanat",
+            "Nimetullah Nahçivani İmam Hatip Ortaokulu": "nimetullah_nahcivani",
+            "Şehit Coşkun Karabulut İmam Hatip Ortaokulu": "sehit_coskun_karabulut"
+        };
 
         let currentUser = null;
         let currentProfile = null;
@@ -246,18 +255,30 @@
             }
 
             try {
+                const schoolKey = SCHOOL_KEYS[targetSchool];
+                if (!schoolKey) throw new Error("Bu okul için Python alıcı anahtarı tanımlanmamış.");
+
+                // Python alıcısının kontrol ettiği Realtime Database yolu.
+                const commandId = (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "_" + Math.random().toString(16).slice(2)));
+                await rtdbSet(rtdbRef(rtdb, `okullar/${schoolKey}/istiklal_komutu`), {
+                    id: commandId,
+                    komut: "istiklal",
+                    timestamp: Date.now()
+                });
+
+                // Mevcut arayüzdeki Sistem Logları için Firestore kaydı da korunur.
                 const cmdRef = collection(db, 'artifacts', appId, 'public', 'data', 'commands');
                 await addDoc(cmdRef, {
                     command: 'PLAY_ANTHEM',
                     school: targetSchool,
-                    // DÜZELTME: Artık kullanıcının adını/soyadını kaydediyoruz
-                    triggeredBy: currentProfile.displayName, 
-                    timestamp: Date.now()
+                    triggeredBy: currentProfile.displayName || currentUser.email || "Yetkili",
+                    timestamp: Date.now(),
+                    rtdbCommandId: commandId
                 });
                 showMessage(targetSchool + " için Marş Komutu Gönderildi!");
             } catch (err) {
                 console.error("Komut gönderme hatası:", err);
-                showMessage("Yetki hatası! Gönderme reddedildi.", "error");
+                showMessage("Komut gönderilemedi. Firebase kurallarını ve bağlantıyı kontrol edin.", "error");
             }
         };
 
